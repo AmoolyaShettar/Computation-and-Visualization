@@ -1,0 +1,416 @@
+---
+title: "Project 1"
+output: html_document
+---
+
+#Installing Packages
+install.packages("dplyr")
+install.packages("tidyr")
+install.packages("corrgram")
+install.packages("ggplot2")
+install.packages("gridExtra")
+install.packages("ggpubr")
+install.packages("treemap")
+install.packages("tidyverse")
+install.packages("chron")
+install.packages("ggwordcloud")
+install.packages("leaflet")
+install.packages("geosphere")
+install.packages("corrplot")
+
+#=========================================================================================================
+
+#Library packages
+library(chron)
+library(lubridate)
+library(corrgram)
+library(dplyr)
+library(ggrepel)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+library("ggpubr")
+library(treemap)
+library(leaflet)
+library(ggwordcloud)
+library(tidyverse)
+library(geosphere)
+library(corrplot)
+
+#=========================================================================================================
+
+#Reading the csv file
+df <- read.csv('Police_Department_Incidents_-_Previous_Year__2016_.csv')
+
+#=========================================================================================================
+
+#Checking for null values in the dataset
+sum(is.na(df))
+
+#Since there are no null values, we can proceed further and visualize data. 
+
+#=========================================================================================================
+
+# MAP OF SAN FRANCISCO
+
+#Checking how the crime is distributed throughout San Francisco
+df$Description <- paste("<b>Incident #: </b>", df$IncidntNum, "<br>", "<b>Category: </b>", df$Category,
+                    "<br>", "<b>Description: </b>", df$Descript,
+                    "<br>", "<b>Day of week: </b>", df$DayOfWeek,
+                    "<br>", "<b>Date: </b>", df$Date,
+                    "<br>", "<b>Time: </b>", df$Time,
+                    "<br>", "<b>PD district: </b>", df$PdDistrict,
+                    "<br>", "<b>Resolution: </b>", df$Resolution,
+                    "<br>", "<b>Address: </b>", df$Address)
+
+leaflet(df, width = "100%") %>% addTiles() %>%
+  addTiles(group = "OSM (default)") %>%
+  addProviderTiles(provider = "Esri.WorldImagery", group = "World Imagery") %>%
+  addMarkers(lng = ~X, lat = ~Y, popup = df$Description, clusterOptions = markerClusterOptions()) %>%
+  addLayersControl( baseGroups = c("OSM", "World Imagery"),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+
+#=========================================================================================================
+
+#Checking month-wise crime inorder to know the spread of crime in the year 2016.
+df_month <- df %>%
+  mutate(Date = as.Date(Date, "%m/%d/%Y")) %>%
+  group_by(Date) %>%
+  summarize(count = n()) %>%
+  arrange(Date)
+
+str(df_month)
+
+count_monthwise <- aggregate(df_month$count, by = list(Category = month(as.POSIXlt(df_month$Date,                                     format = "%d/%m/%Y"))), FUN = sum)
+
+#Line graph for analysis
+plot_month <- plot(count_monthwise$Category, count_monthwise$x, 
+              type = "l", lty = 1, col = "red", xlab = "Months", ylab = "Count", 
+              main = "Month-wise analysis") 
+              
+
+#=========================================================================================================
+
+#Looking into Day-wise crime
+df_day <- sort(table(df$DayOfWeek), decreasing = TRUE)
+df_day <- data.frame(df_day[df_day > 0])
+colnames(df_day) <- c("Day", "Count")
+
+plot_day <- ggplot(df_day, aes(x = Day, y = Count)) + geom_bar(stat = "identity", fill = "red") +
+            ggtitle("Day-wise analysis")
+plot_day
+
+#=========================================================================================================
+
+# WORD CLOUD
+
+#Looking into different types of crimes
+number_of_cases <- df %>%
+  group_by(Category) %>%
+  summarise(number_count = n()) %>%
+  arrange(desc(number_count))
+
+ggplot(number_of_cases, aes(label = Category, size = number_count)) +
+  geom_text_wordcloud_area(area_corr_power = 1) +
+  scale_size_area(max_size = 24) +
+  theme_minimal()
+
+#=========================================================================================================
+
+
+#For a clear count on different crimes, we are using the bar graph
+
+#Finding the frequency of each category
+df_category <- sort(table(df$Category),decreasing = TRUE)
+df_category <- data.frame(df_category[df_category > 0])
+colnames(df_category) <- c("Category", "Frequency")
+df_category$Percentage <- df_category$Frequency / sum(df_category$Frequency)
+
+#Plotting the bar graph
+plot_crime <- ggplot(df_category, aes(x = Category, y = Frequency, fill = Category)) + 
+              geom_bar(stat = "identity") +
+              geom_text(aes(label = Frequency), vjust = -1, color = "black", size = 2) +   
+              geom_hline(yintercept = mean(df_category$Frequency), linetype = "dashed") +
+              theme(axis.text.x = element_blank()) +
+              ggtitle("Bar graph for types of crime")
+plot_crime
+
+#=========================================================================================================
+
+#Selecting Theft category since this is the most occured crime. 
+df_theft <- df %>% filter(grepl("LARCENY/THEFT", Category))
+
+#Function for hour-wise
+get_hour <- function(x) {
+  return (as.numeric(strsplit(x,":")[[1]][1]))
+}
+
+#Checking theft count hour-wise 
+df_theft_time <- df_theft %>%
+                 mutate(Hour = sapply(Time, get_hour)) %>%
+                 group_by(DayOfWeek, Hour) %>%
+                 summarize(count = n())
+
+#Putting in proper format
+day_format <- c("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday")
+
+df_theft_time$DayOfWeek <- factor(df_theft_time$DayOfWeek, level = rev(day_format))
+df_theft_time$Hour <- factor(df_theft_time$Hour, level = 0:23)
+
+#Heat map plot
+plot_theft <- ggplot(df_theft_time, aes(x = Hour, y = DayOfWeek, fill = count)) +
+              geom_tile() +
+              theme(axis.text.x = element_text(angle = 90, vjust = 0.6), 
+              legend.title = element_blank(), legend.position = "top", legend.direction = "horizontal", 
+              legend.key.width = unit(2, "cm"), legend.key.height=unit(0.25, "cm"), 
+              legend.spacing = unit(-0.5,"cm"), panel.spacing = element_blank()) +
+              labs(x = "Hour of Theft", y = "Day of Week of Theft", 
+              title = "Number of Thefts in San Francisco over a day") +
+              scale_fill_gradient(low = "white", high = "Blue")
+
+#Displaying the graph 
+plot_theft
+
+#=========================================================================================================
+
+#Selecting Assault category. 
+df_assault <- df %>% filter(grepl("ASSAULT", Category))
+
+#Checking Assault count hour-wise 
+df_assault_time <- df_assault %>%
+                 mutate(Hour = sapply(Time, get_hour)) %>%
+                 group_by(DayOfWeek, Hour) %>%
+                 summarize(count = n())
+                 
+#Putting in proper format
+day_format <- c("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday")
+
+df_assault_time$DayOfWeek <- factor(df_assault_time$DayOfWeek, level = rev(day_format))
+df_assault_time$Hour <- factor(df_assault_time$Hour, level = 0:23)
+
+#Heat map plot
+plot_assault <- ggplot(df_assault_time, aes(x = Hour, y = DayOfWeek, fill = count)) +
+              geom_tile() +
+              theme(axis.text.x = element_text(angle = 90, vjust = 0.6), 
+              legend.title = element_blank(), legend.position = "top", legend.direction = "horizontal", 
+              legend.key.width = unit(2, "cm"), legend.key.height = unit(0.25, "cm"), 
+              legend.spacing = unit(-0.5,"cm"), panel.spacing = element_blank()) +
+              labs(x = "Hour of Assault", y = "Week", 
+              title = "Number of Assaults in San Francisco over a day") +
+              scale_fill_gradient(low = "white", high = "Red")
+
+#Displaying the graph 
+plot_assault
+
+#=========================================================================================================
+
+#Selecting Robbery category. 
+df_robbery <- df %>% filter(grepl("ROBBERY", Category))
+
+#Checking Assault count hour-wise 
+df_robbery_time <- df_robbery %>%
+                 mutate(Hour = sapply(Time, get_hour)) %>%
+                 group_by(DayOfWeek, Hour) %>%
+                 summarize(count = n())
+                 
+#Putting in proper format
+day_format <- c("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday")
+
+df_robbery_time$DayOfWeek <- factor(df_robbery_time$DayOfWeek, level = rev(day_format))
+df_robbery_time$Hour <- factor(df_robbery_time$Hour, level = 0:23)
+
+#Heat map plot
+plot_robbery <- ggplot(df_robbery_time, aes(x = Hour, y = DayOfWeek, fill = count)) +
+              geom_tile() +
+              theme(axis.text.x = element_text(angle = 90, vjust = 0.6), 
+              legend.title = element_blank(), legend.position = "top", legend.direction = "horizontal", 
+              legend.key.width = unit(2, "cm"), legend.key.height = unit(0.25, "cm"), 
+              legend.spacing = unit(-0.5,"cm"), panel.spacing = element_blank()) +
+              labs(x = "Hour of Robbery", y = "Week", 
+              title = "Number of Robbery in San Francisco, by the time of Robbery") +
+              scale_fill_gradient(low = "white", high = "Yellow")
+
+#Displaying the graph 
+plot_robbery
+
+#=========================================================================================================
+
+#Looking into the districts with highest crimes
+district_count <- df %>%
+                  group_by(PdDistrict) %>%
+                  summarise(Count = n()) %>%
+                  arrange(desc(Count))
+
+# TREE MAP
+plot_district <- treemap(district_count,
+                index = c("PdDistrict","Count"),
+                vSize = "Count",
+                type = "index",
+                palette = "Reds")
+
+#=========================================================================================================
+
+#Distribution of crime amongst the districts
+df_district <- df %>%
+               group_by(PdDistrict, Category, Time) %>%
+               summarize(count = n())
+
+#Graph to analyze it in a better way
+plot_district_distribution <- ggplot(df_district, aes(x = PdDistrict, y = count, fill = Category)) + 
+                              geom_bar(stat = "identity") +
+                              theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+                              ggtitle("District-wise distribution of crimes")
+plot_district_distribution
+
+#=========================================================================================================
+
+#Selecting district
+district_S <- df[df$PdDistrict == "SOUTHERN", ]
+df_S <- sort(table(district_S$Category),decreasing = TRUE)
+df_S <- data.frame(df_S[df_S > 0])
+colnames(df_S) <- c("Category", "Frequency")
+df_S$Percentage <- df_S$Frequency / sum(df_S$Frequency)
+
+#Box plot
+boxplot_S <- ggplot(df_S, aes(y = Frequency)) +
+             labs(y = "Value", x = "Category") +
+             geom_boxplot() +
+             ggtitle("Box plot for crimes in Southern District")
+boxplot_S
+
+#---------------------------------------------------------------------------------------------------------
+
+#Selecting district
+district_I <- df[df$PdDistrict == "INGLESIDE", ]
+df_I <- sort(table(district_I$Category),decreasing = TRUE)
+df_I <- data.frame(df_I[df_I > 0])
+colnames(df_I) <- c("Category", "Frequency")
+df_I$Percentage <- df_I$Frequency / sum(df_I$Frequency)
+
+#Box plot
+boxplot_I <- ggplot(df_I, aes(y = Frequency)) +
+             labs(y = "Value", x = "Category") +
+             geom_boxplot() +
+             ggtitle("Box plot for crimes in Ingleside District")
+boxplot_I
+
+#---------------------------------------------------------------------------------------------------------
+
+#Selecting district
+district_P <- df[df$PdDistrict == "PARK", ]
+df_P <- sort(table(district_P$Category),decreasing = TRUE)
+df_P <- data.frame(df_P[df_P > 0])
+colnames(df_P) <- c("Category", "Frequency")
+df_P$Percentage <- df_P$Frequency / sum(df_P$Frequency)
+
+
+#Box plot
+boxplot_P <- ggplot(df_P, aes(y = Frequency)) +
+             labs(y = "Value", x = "Category") +
+             geom_boxplot() +
+             ggtitle("Box plot for crimes in Park District")
+boxplot_P
+
+#Grid comparise
+grid.arrange(boxplot_S, boxplot_I, boxplot_P, ncol = 3 )
+
+#=========================================================================================================
+
+#Focusing on the district with the highest crime rates i.e., SOUTHERN district
+df_SOUTHERN <- df_district %>%
+               filter(PdDistrict == "SOUTHERN")
+
+plot_southern <- ggplot(df_SOUTHERN, aes(x = Category, y = count, fill = Category)) + 
+                 geom_bar(stat="identity") +
+                 theme(axis.text.x = element_text(angle = 90, hjust = 1))
+plot_southern
+
+#=========================================================================================================
+
+#Looking at what kind of punishment is served there when a crime is committed
+df_resolution <- df %>%
+                 filter(PdDistrict == "SOUTHERN") %>%
+                 group_by(Resolution) %>%
+                 summarize(count = n())
+
+plot_resolution <- ggplot(df_resolution, aes(x = "", y = count, fill = Resolution)) +
+                   geom_bar(stat = "identity", width = 1) +
+                   coord_polar("y", start = 0) +
+                   ggtitle("Distribution of punishment served in Southern")
+plot_resolution
+
+#=========================================================================================================
+
+#Resolution vs Crime all over San Francisco
+plot_cat_res <- ggplot(data = df, aes(x = Category, y = Resolution))
+
+plot_cat_res_2 <- plot_cat_res + geom_count(color = "darkgreen") +
+                  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+                  ggtitle("Resolution vs Crime")
+plot_cat_res_2
+
+#=========================================================================================================
+
+
+df_area_S <- df %>% filter(PdDistrict == "SOUTHERN") %>% select(X,Y)
+S <- areaPolygon(df_area_S)
+S
+
+df_area_N <- df %>% filter(PdDistrict == "NORTHERN") %>% select(X,Y)
+N <- areaPolygon(df_area_N)
+N
+
+df_area_M <- df %>% filter(PdDistrict == "MISSION") %>% select(X,Y)
+M <- areaPolygon(df_area_M)
+M
+
+df_area_B <- df %>% filter(PdDistrict == "BAYVIEW") %>% select(X,Y)
+B <- areaPolygon(df_area_B)
+B
+
+df_area_T <- df %>% filter(PdDistrict == "TENDERLOIN") %>% select(X,Y)
+T <- areaPolygon(df_area_T)
+T
+
+df_area_TA <- df %>% filter(PdDistrict == "TARAVAL") %>% select(X,Y)
+TA <- areaPolygon(df_area_TA)
+TA
+
+df_area_I <- df %>% filter(PdDistrict == "INGLESIDE") %>% select(X,Y)
+I <- areaPolygon(df_area_I)
+I
+
+df_area_C <- df %>% filter(PdDistrict == "CENTRAL") %>% select(X,Y)
+C <- areaPolygon(df_area_C)
+C
+
+df_area_R <- df %>% filter(PdDistrict == "RICHMOND") %>% select(X,Y)
+R <- areaPolygon(df_area_R)
+R
+
+df_area_P <- df %>% filter(PdDistrict == "PARK") %>% select(X,Y)
+P <- areaPolygon(df_area_P)
+P
+
+df_category_area <- df %>%
+               group_by(PdDistrict) %>%
+               summarize(count = n())
+df_category_area <- df_category_area[-c(1), ]
+Area <- c(B, C, I, M, N, P, R, S, TA, T)
+area_district <- data.frame(Area, df_category_area$count)
+names(area_district)[names(area_district) == "df_category_area.count"] <- "Count"
+
+correlation <- cor(area_district, use = "pairwise.complete.obs", method = "kendall")
+correlation
+correlation <- round(correlation, 2)
+corrplot(correlation, method = "circle")
+
+
+
+
+
+
+
+
+
